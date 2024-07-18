@@ -5,7 +5,7 @@ import wandb
 import torchsummary
 import logging
 from tqdm import tqdm
-from time import time
+import time
 from datetime import date
 import os
 from logging_handlers import *
@@ -153,7 +153,8 @@ def train_epochs(
         use_wandb=False, 
         use_tensorboard=False, 
         resume_training=False, 
-        checkpoint_path=None
+        checkpoint_path=None,
+        interval=0,
     ):
     """
         Train the model for multiple epochs
@@ -187,6 +188,7 @@ def train_epochs(
     if save_rate is not None:
         assert save_dir is not None, "[ERROR]: Please specify the checkpoint directory to use save mode! "
         
+    # Resume training from previous checkpoint
     if resume_training:
         assert checkpoint_path is not None, "[ERROR]: Please specity the checkpoint path to resume training from checkpoint!"
         assert os.path.exists(checkpoint_path), "[ERROR]: Checkpoint path does not exists!"
@@ -199,8 +201,11 @@ def train_epochs(
     if use_tensorboard:
         writer = SummaryWriter()      
     
+    # Initialize best score, load model to device
     best_score = 0.0
+    model.to(device)
     
+    # Main training loop
     while epoch <= num_epochs:
         epoch += 1
         logger.debug("[INFO]: Epoch: {}/{}".format(epoch, num_epochs))
@@ -256,3 +261,7 @@ def train_epochs(
         if (save_rate != None) and (epoch % save_rate == 0):
             checkpoint_name = "Epoch_{}.ckpt".format(epoch)
             save_checkpoint(model, optimizer, train_loss, epoch, checkpoint_name, save_dir)
+
+        if interval != 0:
+            logger.debug("[INFO]: Sleeping for {} secs ...".format(interval))
+            time.sleep(interval)
