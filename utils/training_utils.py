@@ -4,11 +4,11 @@ import torch.nn.functional as f
 import wandb
 import torchsummary
 import logging
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 import time
 from datetime import date
 import os
-from logging_handlers import *
+from utils.logging_handlers import *
 from torch.utils.tensorboard import SummaryWriter
 
 def save_checkpoint(model, optimizer, loss, epoch, ckpt_name, save_dir):
@@ -75,6 +75,7 @@ def train_one_epoch(model, dataloader, optimizer, loss_func, metrics, device):
     model.train()
     
     # Main training loop
+    running_loss = 0.0
     for i, data in tqdm(enumerate(dataloader)):
         image, target = data
         image, target = image.to(device), target.to(device)
@@ -82,6 +83,7 @@ def train_one_epoch(model, dataloader, optimizer, loss_func, metrics, device):
         # Feed the input through the model
         output = model(image)
         loss = loss_func(output, target)
+        running_loss += loss.item()
         
         # Back propagation
         optimizer.zero_grad()
@@ -98,7 +100,8 @@ def train_one_epoch(model, dataloader, optimizer, loss_func, metrics, device):
         metric_name = metric.__class__.__name__
         metrics_res[metric_name] = metric.compute()
         metric.reset()
-    return loss, metrics_res
+
+    return (running_loss/len(dataloader)), metrics_res
 
 
 def validate(model, dataloader, loss_func, metrics, device):
@@ -113,6 +116,7 @@ def validate(model, dataloader, loss_func, metrics, device):
         - Returns:
     """
     model.eval()
+    running_loss = 0.0
     
     # Loop through the batches
     for i, data in tqdm(enumerate(dataloader)):
@@ -122,6 +126,7 @@ def validate(model, dataloader, loss_func, metrics, device):
         # Feed the input through the model
         output = model(image)
         loss = loss_func(output, target)
+        running_loss += loss.item()
         
         # Calculate metrics
         for metric in metrics:
@@ -133,14 +138,15 @@ def validate(model, dataloader, loss_func, metrics, device):
         metric_name = metric.__class__.__name__
         metrics_res[metric_name] = metric.compute()
         metric.reset()
-    return loss, metrics_res
+    
+    return (running_loss/len(dataloader)), metrics_res
 
 
 def train_epochs(
         model, 
         train_loader, 
         val_loader, 
-        optimizer, 
+        optimizer,
         loss_func, 
         metrics,
         metric_weights, 
@@ -155,6 +161,7 @@ def train_epochs(
         resume_training=False, 
         checkpoint_path=None,
         interval=0,
+        lr_scheduler=None
     ):
     """
         Train the model for multiple epochs
@@ -175,6 +182,8 @@ def train_epochs(
             use_tensorboard:    Whether to use tensorboard for logging, suitable for local training
             resume_training:    Resume from saved checkpoint path
             checkpoint_path:    Checkpoint_path, required if resume training from previous session
+            interval:           Time rest between each epochs (seconds)
+            lr_scheduler:       Learning rate scheduler
     """
     
     # Create logger
@@ -203,7 +212,14 @@ def train_epochs(
     
     # Initialize best score, load model to device
     best_score = 0.0
+    model.float()
     model.to(device)
+    
+    # Display model info
+    img, label = next(iter(train_loader))
+    img_shape = img.shape
+    torchsummary.summary(model, img_shape[1:], device=device) # Remove batchsize channel
+    
     
     # Main training loop
     while epoch <= num_epochs:
@@ -211,16 +227,23 @@ def train_epochs(
         logger.debug("[INFO]: Epoch: {}/{}".format(epoch, num_epochs))
         train_loss, train_metrics = train_one_epoch(model, train_loader, optimizer, loss_func, metrics, device)
         
+        # Logging using logger
+        logger.debug("[INFO]: Training Results:")
+        logger.debug("Training loss: {}".format(train_loss))
+        for metric in train_metrics.keys():
+            logger.debug("Train_{}: {}".format(metric, train_metrics[metric]))
+        
         # Logging using tensorboard to log training results
         if use_tensorboard:
-            writer.add_scalar("Train Loss", train_loss.item(), epoch)
+            writer.add_scalar("Train Loss", train_loss, epoch)
             for metric in train_metrics.keys():
                 writer.add_scalar("Train {}".format(metric), train_metrics[metric], epoch)
+            writer.flush()
         
         # Logging using wandb to log training results
         if use_wandb:
             wandb.log(
-                {"Train Loss": train_loss.item()})
+                {"Train Loss": train_loss})
             
             for metric in train_metrics.keys():
                 wandb.log(
@@ -234,18 +257,19 @@ def train_epochs(
         final_score = calculate_final_metric(val_metrics, metric_weights)
         if final_score > best_score:
             best_score = final_score
-            save_checkpoint(model, optimizer, loss_func, epoch, "best.ckpt", save_dir)
+            save_checkpoint(model, optimizer, val_loss, epoch, "best.ckpt", save_dir)
         
         # Logging using tensorboard to log training results
         if use_tensorboard:
-            writer.add_scalar("Val Loss", val_loss.item(), epoch)
+            writer.add_scalar("Val Loss", val_loss, epoch)
             for metric in train_metrics.keys():
                 writer.add_scalar("Val {}".format(metric), val_metrics[metric], epoch)
+            writer.flush()
         
         # Logging using wandb
         if use_wandb:
             wandb.log(
-                {"Val Loss": val_loss.item()})
+                {"Val Loss": val_loss})
             
             for metric in train_metrics.keys():
                 wandb.log(
@@ -254,9 +278,9 @@ def train_epochs(
         
         if (log_rate != None) and (epoch % log_rate == 0):
             logger.debug("[INFO]: Validation Results:")
-            logger.debug("Validation loss: {}",format(val_loss))
+            logger.debug("Validation loss: {}".format(val_loss))
             for metric in val_metrics.keys():
-                logger.debug("{}: {}".format(metric, val_metrics[metric]))
+                logger.debug("Val_{}: {}".format(metric, val_metrics[metric]))
                 
         if (save_rate != None) and (epoch % save_rate == 0):
             checkpoint_name = "Epoch_{}.ckpt".format(epoch)
@@ -265,3 +289,19 @@ def train_epochs(
         if interval != 0:
             logger.debug("[INFO]: Sleeping for {} secs ...".format(interval))
             time.sleep(interval)
+            
+    # Summarizing result:
+    best_epoch, best_loss = load_checkpoint(model, optimizer, os.path.join(save_dir, "best.ckpt"))
+    logger.debug("[INFO]: ------------------- Training completed! -------------------------")
+    logger.debug("[INFO]: Best checkpoint: epoch {}".format(best_epoch))
+    best_loss, best_metrics = validate(model, val_loader, loss_func, metrics, device)
+    logger.debug("Best loss: {}".format(best_loss))
+    for metric in val_metrics.keys():
+        logger.debug("Best_{}: {}".format(metric, best_metrics[metric]))
+    
+            
+    # Free resources
+    if use_tensorboard:
+        writer.close()
+    if use_wandb:
+        wandb.finish()

@@ -23,7 +23,7 @@ class Linear_Encoder(nn.Module):
 
     
     def forward(self, x):
-        if len(self.hidden_features == 0):
+        if len(self.hidden_features) == 0:
             out = self.emb(x)
 
         else:
@@ -58,7 +58,7 @@ class Linear_Decoder(nn.Module):
 
 
     def forward(self, x):
-        if len(self.hidden_features == 0):
+        if len(self.hidden_features) == 0:
             out = self.emb(x)
 
         else:

@@ -1,5 +1,5 @@
 import logging
-from tqdm import tqdm
+from tqdm.autonotebook import tqdm
 
 
 class TqdmLoggingHandler(logging.StreamHandler):
