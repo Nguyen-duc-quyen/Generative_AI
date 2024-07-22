@@ -217,12 +217,13 @@ def train_epochs(
     
     # Display model info
     img, label = next(iter(train_loader))
+    print(img.shape)
     img_shape = img.shape
     torchsummary.summary(model, img_shape[1:], device=device) # Remove batchsize channel
     
     
     # Main training loop
-    while epoch <= num_epochs:
+    while epoch < num_epochs:
         epoch += 1
         logger.debug("[INFO]: Epoch: {}/{}".format(epoch, num_epochs))
         train_loss, train_metrics = train_one_epoch(model, train_loader, optimizer, loss_func, metrics, device)

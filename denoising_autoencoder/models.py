@@ -121,7 +121,7 @@ class Conv_Decoder(nn.Module):
     def forward(self, x):
         out = self.conv1(x)
         out = F.relu(out)
-        out = self.conv2(out)
+        out = self.conv2(x)
         return out
 
 

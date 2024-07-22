@@ -13,7 +13,7 @@ class MnistDataset(Dataset):
     def __getitem__(self, index):
         image = self.images[index, :, :]
         label = self.labels[index]
-        image = image[None, :, :]
+        image = image[:, :, None] # Add the "channel" dimension
         image = self.transforms(image)
         
         # return image, label # for classification task
@@ -24,8 +24,26 @@ class MnistDataset(Dataset):
         return self.images.shape[0]
     
 
+class CifarGenerativeDataset(Dataset):
+    def __init__(self, images, transforms):
+        super().__init__()
+        self.images = images # The images are expected to be of shape [datasize, H, W, C]
+        self.transforms = transforms
+        
+    
+    def __getitem__(self, index):
+        image = self.images[index, :, :, :]
+        image = self.transforms(image)
+        
+        return image, image
+
+    def __len__(self):
+        return self.images.shape[0]
+
+
 def custom_worker_init_func(x):
     return np.random.seed((torch.initial_seed()) % (2**32))
+
 
 def get_loader(dataset, batchsize, num_workers, shuffle=True, drop_last=False):
     dataloader = DataLoader(dataset=dataset,
