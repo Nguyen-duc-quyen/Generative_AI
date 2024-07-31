@@ -21,24 +21,26 @@ class CustomSparseAutoencoderLoss(nn.Module):
         self.mse = nn.MSELoss()
         self.KLDiv = BernoulliKLDiv()
 
-    def forward(self, output, target):
-        rho_hat = output["emb"]
-        rho_hat = torch.mean(rho_hat, dim=-1)
-        return self.mse(output["out"], target) + self.beta*self.KLDiv(rho_hat, self.rho)
+    def forward(self, output, target, embedding):
+        rho_hat = torch.mean(embedding, dim=-1)
+        return self.mse(output, target) + self.beta*self.KLDiv(rho_hat, self.rho)
     
 
 class SparseAutoencoderLoss(nn.Module):
     """
         Sparse Autoencoder Loss with standard Kulback-Leibler Divergence Loss
     """
-    def __init__(self, beta, rho):
+    def __init__(self, beta, rho, device):
         super().__init__()
         self.beta = beta
         self.rho = rho
+        self.device = device
         self.mse = nn.MSELoss()
-        self.KLDiv = nn.KLDivLoss()
+        self.KLDiv = nn.KLDivLoss(reduction="batchmean", log_target=False)
+        self.KLDiv2 = nn.KLDivLoss(reduction="batchmean", log_target=False)
 
-    def forward(self, output, target):
-        rho_hat = output["emb"]
-        rho_hat = torch.mean(rho_hat, dim=-1)
-        return self.mse(output, target) + self.beta*self.KLDiv(rho_hat, self.rho)
+    def forward(self, output, target, embedding):
+        rho_hat = torch.mean(embedding, dim=-1)
+        rho = torch.ones(rho_hat.shape) * self.rho
+        rho = rho.to(self.device)
+        return self.mse(output, target) + self.beta*(self.KLDiv(rho_hat.log(), rho) + self.KLDiv2((1 - rho_hat).log(), (1 - rho)))

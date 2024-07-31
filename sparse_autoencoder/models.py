@@ -135,10 +135,7 @@ class Linear_AutoEncoder(nn.Module):
     def forward(self, x):
         emb = F.relu(self.encoder(x))
         out = F.sigmoid(self.decoder(emb))
-        output = {}
-        output["out"] = out
-        output["emb"] = emb
-        return output
+        return out, emb
 
 
 class Conv_AutoEncoder(nn.Module):
@@ -151,7 +148,4 @@ class Conv_AutoEncoder(nn.Module):
     def forward(self, x):
         emb = F.relu(self.encoder(x))
         out = F.sigmoid(self.decoder(emb))
-        output = {}
-        output["out"] = out
-        output["emb"] = emb
-        return output
+        return out, emb
